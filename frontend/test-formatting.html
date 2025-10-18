@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Formatting Test</title>
+</head>
+<body>
+    <h1>Text Editor Formatting Test</h1>
+    
+    <h2>Test Instructions:</h2>
+    <ol>
+        <li>Type some text in the textarea below</li>
+        <li>Select some text</li>
+        <li>Click Bold, Italic, or Underline buttons</li>
+        <li>Check if the text gets wrapped with markdown syntax</li>
+        <li>Right-click on selected text to test context menu</li>
+    </ol>
+    
+    <textarea id="testArea" style="width: 500px; height: 200px; font-family: monospace;">
+This is a test text. Select some words and try formatting them.
+You can also test lists and other features.
+    </textarea>
+    
+    <div style="margin: 10px 0;">
+        <button onclick="testBold()">Bold (**)</button>
+        <button onclick="testItalic()">Italic (*)</button>
+        <button onclick="testUnderline()">Underline (__)</button>
+        <button onclick="testBulletList()">Bullet List</button>
+    </div>
+    
+    <div id="output" style="margin-top: 20px; padding: 10px; background: #f0f0f0; font-family: monospace; white-space: pre-wrap;"></div>
+    
+    <script>
+        const textarea = document.getElementById('testArea');
+        const output = document.getElementById('output');
+        
+        function updateOutput() {
+            output.textContent = textarea.value;
+        }
+        
+        textarea.addEventListener('input', updateOutput);
+        updateOutput();
+        
+        function wrapSelection(before, after) {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const selectedText = textarea.value.substring(start, end);
+            
+            console.log('Selection:', { start, end, selectedText, before, after });
+            
+            if (selectedText) {
+                const newText = textarea.value.substring(0, start) + before + selectedText + after + textarea.value.substring(end);
+                textarea.value = newText;
+                textarea.focus();
+                textarea.setSelectionRange(start + before.length, end + before.length);
+            } else {
+                const newText = textarea.value.substring(0, start) + before + after + textarea.value.substring(start);
+                textarea.value = newText;
+                textarea.focus();
+                textarea.setSelectionRange(start + before.length, start + before.length);
+            }
+            updateOutput();
+        }
+        
+        function testBold() {
+            wrapSelection('**', '**');
+        }
+        
+        function testItalic() {
+            wrapSelection('*', '*');
+        }
+        
+        function testUnderline() {
+            wrapSelection('__', '__');
+        }
+        
+        function testBulletList() {
+            const start = textarea.selectionStart;
+            const prefix = '• ';
+            const newText = textarea.value.substring(0, start) + prefix + textarea.value.substring(start);
+            textarea.value = newText;
+            textarea.focus();
+            textarea.setSelectionRange(start + prefix.length, start + prefix.length);
+            updateOutput();
+        }
+    </script>
+</body>
+</html>
