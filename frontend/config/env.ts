@@ -22,7 +22,7 @@ const getEnvNumber = (key: string, defaultValue: number): number => {
 };
 
 export const config = {
-  apiUrl: getEnvVar('VITE_API_URL', 'https://pdftoword-r6dz.onrender.com/api'),
+  apiUrl: getEnvVar('VITE_API_URL', 'https://pdftoword-0d2m.onrender.com'),
   apiTimeout: getEnvNumber('VITE_API_TIMEOUT', 60000),
   enableAiCorrection: getEnvVar('VITE_ENABLE_AI_CORRECTION', 'false') === 'true',
   maxFileSize: getEnvNumber('VITE_MAX_FILE_SIZE', 52428800),
