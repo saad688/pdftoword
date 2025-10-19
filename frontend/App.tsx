@@ -5,11 +5,12 @@ import { BatchProcessingPage } from './components/BatchProcessingPage';
 import { StoredFilesPage } from './components/StoredFilesPage';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ProcessingScreenWithMessages } from './components/ProcessingScreenWithMessages';
+import OnboardingGuide from './components/OnboardingGuide';
+import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster } from './components/ui/sonner';
 import { toast } from 'sonner';
 import { api, FileStatus } from './services/api';
 import { useAutoCleanup } from './hooks/useAutoCleanup';
-// import { useFilePolling } from './hooks/useFilePolling'; // Removed - using custom polling logic
 
 export type ProcessedFile = {
   id: string;
@@ -40,6 +41,7 @@ export default function App() {
   const [processingFileIds, setProcessingFileIds] = useState<Set<string>>(new Set());
   const [isBackendHealthy, setIsBackendHealthy] = useState<boolean>(true);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
 
   // Check backend health and initialize app
   useEffect(() => {
@@ -60,10 +62,17 @@ export default function App() {
         );
         setProcessingFileIds(processing);
         
-      } catch (error) {
+        // Check if first time user
+        const hasSeenOnboarding = localStorage.getItem('onboarding_completed');
+        if (!hasSeenOnboarding && convertedFiles.length === 0) {
+          setShowOnboarding(true);
+        }
+        
+      } catch (error: any) {
         setIsBackendHealthy(false);
-        toast.error('Backend server is not responding', {
-          description: 'Please make sure the backend is running on port 8000',
+        const errorMessage = error?.message || 'Service temporarily unavailable. Please try again in a few moments.';
+        toast.error('Connection Error', {
+          description: errorMessage,
         });
       } finally {
         // Add minimum loading time for better UX
@@ -320,11 +329,16 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40">
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40">
       {!isBackendHealthy && (
-        <div className="bg-red-500 text-white px-4 py-2 text-center">
-          ⚠️ Backend server not connected. Please start the backend on port 8000.
+        <div className="bg-amber-500 text-white px-4 py-2 text-center">
+          ⚠️ AI Processing Service Unavailable - Our service is temporarily offline. Please try again shortly.
         </div>
+      )}
+
+      {showOnboarding && (
+        <OnboardingGuide onComplete={() => setShowOnboarding(false)} />
       )}
 
       {currentView === 'upload' && (
@@ -387,6 +401,7 @@ export default function App() {
         />
       )}
       <Toaster position="top-right" richColors />
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }

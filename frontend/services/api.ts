@@ -32,26 +32,31 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response) {
-      // Server responded with error - Log safely without exposing sensitive data
-      console.error('API Error:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        url: error.config?.url,
-      });
-    } else if (error.request) {
-      // Request made but no response - Log safely
-      console.error('Network Error:', {
-        message: 'Network request failed',
-        url: error.config?.url,
-      });
-    } else {
-      // Something else happened - Log safely
-      console.error('Request Error:', {
-        message: 'Request configuration error',
-      });
+    let userMessage = 'An unexpected error occurred. Please try again.';
+    
+    if (error.code === 'ECONNABORTED' || error.code === 'NETWORK_ERROR') {
+      userMessage = 'Service temporarily unavailable. Our AI processing service is currently offline. Please try again in a few moments.';
+    } else if (error.request && !error.response) {
+      userMessage = 'Unable to connect to our AI processing service. Please check your internet connection and try again.';
+    } else if (error.response) {
+      const status = error.response.status;
+      if (status >= 500) {
+        userMessage = 'Our AI processing service is experiencing technical difficulties. Please try again shortly.';
+      } else if (status === 401) {
+        userMessage = 'Authentication failed. Please refresh the page and try again.';
+      } else if (status === 413) {
+        userMessage = 'File too large. Please select a smaller PDF file (max 150MB).';
+      } else if (status === 429) {
+        userMessage = 'Too many requests. Please wait a moment before trying again.';
+      }
     }
-    return Promise.reject(error);
+    
+    // Attach user-friendly message to error
+    const enhancedError = new Error(userMessage);
+    (enhancedError as any).originalError = error;
+    (enhancedError as any).isNetworkError = !error.response;
+    
+    return Promise.reject(enhancedError);
   }
 );
 
