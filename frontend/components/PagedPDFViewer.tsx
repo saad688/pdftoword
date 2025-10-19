@@ -17,7 +17,7 @@ export function PagedPDFViewer({ fileId, fileName }: PagedPDFViewerProps) {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(`http://localhost:8000/api/files/${fileId}/pdf`);
+        const response = await fetch(`https://pdftoword-0d2m.onrender.com/api/files/${fileId}/pdf`);
         if (!response.ok) {
           throw new Error('Failed to load PDF');
         }

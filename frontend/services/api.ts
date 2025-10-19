@@ -110,13 +110,13 @@ export const api = {
     formData.append('use_cache', useCache.toString());
 
     // Log the actual request being sent
-    console.log(`🌐 Making POST request to /upload`);
+    console.log(`🌐 Making POST request to /api/upload`);
     console.log(`📦 FormData contents:`);
     for (let [key, value] of formData.entries()) {
       console.log(`  ${key}: ${value}`);
     }
     
-    const response = await apiClient.post<UploadResponse>('/upload', formData, {
+    const response = await apiClient.post<UploadResponse>('/api/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -135,7 +135,7 @@ export const api = {
     });
     formData.append('use_cache', useCache.toString());
 
-    const response = await apiClient.post<BatchUploadResponse>('/upload-batch', formData, {
+    const response = await apiClient.post<BatchUploadResponse>('/api/upload-batch', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -146,19 +146,19 @@ export const api = {
 
   // Get file status
   getFileStatus: async (fileId: string): Promise<FileStatus> => {
-    const response = await apiClient.get<FileStatus>(`/files/${fileId}`);
+    const response = await apiClient.get<FileStatus>(`/api/files/${fileId}`);
     return response.data;
   },
 
   // Get all files
   getAllFiles: async (): Promise<FileStatus[]> => {
-    const response = await apiClient.get<FilesListResponse>('/files');
+    const response = await apiClient.get<FilesListResponse>('/api/files');
     return response.data.files;
   },
 
   // Update file text
   updateFileText: async (fileId: string, text: string): Promise<void> => {
-    await apiClient.put(`/files/${fileId}/text`, { text });
+    await apiClient.put(`/api/files/${fileId}/text`, { text });
   },
 
   // AI text correction
@@ -167,7 +167,7 @@ export const api = {
     selectedText: string,
     correction: string
   ): Promise<void> => {
-    await apiClient.post(`/files/${fileId}/correct`, {
+    await apiClient.post(`/api/files/${fileId}/correct`, {
       selected_text: selectedText,
       correction,
     });
@@ -179,7 +179,7 @@ export const api = {
     selectedText: string,
     userExplanation: string
   ): Promise<{ corrected_text: string }> => {
-    const response = await apiClient.post(`/files/${fileId}/ai-correct`, {
+    const response = await apiClient.post(`/api/files/${fileId}/ai-correct`, {
       selected_text: selectedText,
       user_explanation: userExplanation,
     });
@@ -188,7 +188,7 @@ export const api = {
 
   // Download file
   downloadFile: async (fileId: string, fileName: string): Promise<void> => {
-    const response = await apiClient.get(`/files/${fileId}/download`, {
+    const response = await apiClient.get(`/api/files/${fileId}/download`, {
       responseType: 'blob',
     });
 
@@ -205,24 +205,24 @@ export const api = {
 
   // Delete file
   deleteFile: async (fileId: string): Promise<void> => {
-    await apiClient.delete(`/files/${fileId}`);
+    await apiClient.delete(`/api/files/${fileId}`);
   },
 
   // Save text changes to DOCX
   saveTextToDocx: async (fileId: string, text: string): Promise<{ message: string }> => {
-    const response = await apiClient.post(`/files/${fileId}/save`, { text });
+    const response = await apiClient.post(`/api/files/${fileId}/save`, { text });
     return response.data;
   },
 
   // Export file to different formats
   exportFile: async (fileId: string, format: string): Promise<{ export_path: string; message: string }> => {
-    const response = await apiClient.post(`/files/${fileId}/export`, { format });
+    const response = await apiClient.post(`/api/files/${fileId}/export`, { format });
     return response.data;
   },
 
   // Download exported file
   downloadExport: async (fileId: string, exportPath: string, fileName: string): Promise<void> => {
-    const response = await apiClient.get(`/files/${fileId}/export/${exportPath}`, {
+    const response = await apiClient.get(`/api/files/${fileId}/export/${exportPath}`, {
       responseType: 'blob',
     });
 
@@ -239,7 +239,13 @@ export const api = {
 
   // Health check
   healthCheck: async (): Promise<{ status: string; timestamp: string }> => {
-    const response = await apiClient.get('/health');
+    const response = await apiClient.get('/api/health');
+    return response.data;
+  },
+
+  // Backend status check
+  checkStatus: async (): Promise<{ status: string; message: string; active_files: number }> => {
+    const response = await apiClient.get('/api/status');
     return response.data;
   },
 };

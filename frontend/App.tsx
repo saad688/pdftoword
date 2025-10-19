@@ -47,8 +47,10 @@ export default function App() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Check backend health
-        await api.healthCheck();
+        // Check backend status first
+        console.log('🔍 Checking backend status...');
+        const statusResponse = await api.checkStatus();
+        console.log('✅ Backend status:', statusResponse);
         setIsBackendHealthy(true);
         
         // Load existing files
@@ -69,6 +71,7 @@ export default function App() {
         }
         
       } catch (error: any) {
+        console.error('❌ Backend connection failed:', error);
         setIsBackendHealthy(false);
         const errorMessage = error?.message || 'Service temporarily unavailable. Please try again in a few moments.';
         toast.error('Connection Error', {
@@ -332,8 +335,8 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40">
       {!isBackendHealthy && (
-        <div className="bg-amber-500 text-white px-4 py-2 text-center">
-          ⚠️ AI Processing Service Unavailable - Our service is temporarily offline. Please try again shortly.
+        <div className="bg-red-500 text-white px-4 py-2 text-center">
+          ⚠️ AI Processing Service Unavailable - Cannot connect to backend. Please check your internet connection and try again.
         </div>
       )}
 

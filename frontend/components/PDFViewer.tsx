@@ -18,7 +18,7 @@ export function PDFViewer({ fileId, fileName }: PDFViewerProps) {
         setError(null);
         
         // Get PDF from backend
-        const response = await fetch(`http://localhost:8000/api/files/${fileId}/pdf`, {
+        const response = await fetch(`https://pdftoword-0d2m.onrender.com/api/files/${fileId}/pdf`, {
           method: 'GET',
           headers: {
             'Accept': 'application/pdf'
