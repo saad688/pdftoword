@@ -9,3 +9,4 @@ google-genai==1.45.0
 gunicorn
 Pillow
 PyPDF2
+dotenv
