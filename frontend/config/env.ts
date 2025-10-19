@@ -22,7 +22,7 @@ const getEnvNumber = (key: string, defaultValue: number): number => {
 };
 
 export const config = {
-  apiUrl: getEnvVar('VITE_API_URL', 'http://localhost:8000/api'),
+  apiUrl: getEnvVar('VITE_API_URL', 'https://your-render-app-name.onrender.com/api'),
   apiTimeout: getEnvNumber('VITE_API_TIMEOUT', 60000),
   enableAiCorrection: getEnvVar('VITE_ENABLE_AI_CORRECTION', 'false') === 'true',
   maxFileSize: getEnvNumber('VITE_MAX_FILE_SIZE', 52428800),
