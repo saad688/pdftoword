@@ -208,8 +208,8 @@ app = FastAPI(
     title="PDF to Word Converter API",
     description="Professional PDF to Word conversion service powered by Google Gemini AI with comprehensive logging and cost tracking",
     version="2.0.0",
-    docs_url="/docs" if os.getenv("DEBUG") else None,
-    redoc_url="/redoc" if os.getenv("DEBUG") else None
+    docs_url="/docs",  # Always enable docs
+    redoc_url="/redoc"  # Always enable redoc
 )
 
 # Setup CORS using ALLOWED_ORIGINS_ENV
