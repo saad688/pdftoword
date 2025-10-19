@@ -1,5 +1,6 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, Request, Depends, Header
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import HTTPException as FastAPIHTTPException
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
@@ -24,6 +25,12 @@ import platform
 import hashlib
 from docx import Document
 from docx.shared import Inches
+
+# Security & runtime config via env
+API_KEY = os.getenv("API_KEY", "")
+ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "150"))  # max upload in MB
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -205,13 +212,23 @@ app = FastAPI(
     redoc_url="/redoc" if os.getenv("DEBUG") else None
 )
 
+# Setup CORS using ALLOWED_ORIGINS_ENV
+origins = [o.strip() for o in ALLOWED_ORIGINS_ENV.split(",") if o.strip()]
+if not origins:
+    origins = ["http://localhost:3000", "http://localhost:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# API key dependency for endpoints
+def require_api_key(x_api_key: Optional[str] = Header(None)):
+    if API_KEY and x_api_key != API_KEY:
+        raise FastAPIHTTPException(status_code=401, detail="Invalid or missing API key")
 
 # Configuration
 UPLOAD_DIR = "uploads"
@@ -222,7 +239,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Global state
 files_db: Dict[str, dict] = {}
 converter = None
-thread_pool = ThreadPoolExecutor(max_workers=4)
+# Thread pool sized via env
+thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 file_locks = {}
 
 def get_converter():
@@ -371,30 +389,39 @@ async def process_file_background(file_id: str, file_path: str, use_cache: bool 
         file_locks.pop(file_id, None)
         deferred_logger.flush_if_idle()
 
-@app.post("/api/upload")
-@app.post("/upload")
+@app.post("/api/upload", dependencies=[Depends(require_api_key)])
+@app.post("/upload", dependencies=[Depends(require_api_key)])
 async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), use_cache: str = Form("true")):
-    # Debug: Print all form data
-    form = await request.form()
-    print(f"🔍 RAW FORM DATA:")
-    for key, value in form.items():
-        print(f"  {key}: '{value}' (type: {type(value)})")
-    
-    # Convert string to boolean properly
-    use_cache_bool = use_cache.lower() == "true"
-    print(f"🔍 PARSED: use_cache='{use_cache}' -> {use_cache_bool}")
-    
-    content = await file.read()
-    
-    if not file.filename.endswith('.pdf'):
+    # parse boolean
+    use_cache_bool = str(use_cache).lower() == "true"
+
+    # ensure extension
+    if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-    
+
     file_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
-    
-    async with aiofiles.open(file_path, 'wb') as f:
-        await f.write(content)
-    
+    safe_name = file.filename.replace(" ", "_")
+    file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{safe_name}")
+
+    # stream to disk in chunks to avoid high memory use
+    size = 0
+    CHUNK_SIZE = 1024 * 1024  # 1 MB
+    async with aiofiles.open(file_path, 'wb') as out_f:
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            await out_f.write(chunk)
+            size += len(chunk)
+            # enforce limit
+            if size > MAX_UPLOAD_MB * 1024 * 1024:
+                await out_f.close()
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+                raise HTTPException(status_code=413, detail=f"File too large. Max {MAX_UPLOAD_MB} MB allowed.")
+
     files_db[file_id] = {
         "id": file_id,
         "name": file.filename,
@@ -402,7 +429,7 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
         "progress": 0,
         "upload_date": datetime.now().isoformat(),
         "expiry_date": (datetime.now() + timedelta(days=2)).isoformat(),
-        "file_size": len(content),
+        "file_size": size,
         "file_path": file_path,
         "word_count": 0,
         "char_count": 0,
@@ -412,44 +439,46 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
         "pages_data": [],
         "use_cache": use_cache_bool
     }
-    
+
+    # schedule background processing (non-blocking)
     background_tasks.add_task(process_file_background, file_id, file_path, use_cache_bool)
-    
-    # Return the file data immediately so frontend can start polling
+
     response_data = files_db[file_id].copy()
     response_data.pop("file_path", None)
-    
-    return {
-        "file_id": file_id, 
-        "message": "File uploaded successfully",
-        "file_data": response_data
-    }
+    return {"file_id": file_id, "message": "File uploaded successfully", "file_data": response_data}
 
-@app.post("/api/upload-batch")
-@app.post("/upload-batch")
+@app.post("/api/upload-batch", dependencies=[Depends(require_api_key)])
+@app.post("/upload-batch", dependencies=[Depends(require_api_key)])
 async def upload_batch(request: Request, background_tasks: BackgroundTasks, files: List[UploadFile] = File(...), use_cache: str = Form("true")):
-    # Debug: Print all form data
-    form = await request.form()
-    print(f"🔍 BATCH RAW FORM DATA:")
-    for key, value in form.items():
-        print(f"  {key}: '{value}' (type: {type(value)})")
-    
-    # Convert string to boolean properly
-    use_cache_bool = use_cache.lower() == "true"
-    print(f"🔍 BATCH PARSED: use_cache='{use_cache}' -> {use_cache_bool}")
+    use_cache_bool = str(use_cache).lower() == "true"
     file_ids = []
-    
+
     for file in files:
-        if not file.filename.endswith('.pdf'):
+        if not file.filename.lower().endswith('.pdf'):
             continue
-            
+
         file_id = str(uuid.uuid4())
-        file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
-        
-        async with aiofiles.open(file_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
-        
+        safe_name = file.filename.replace(" ", "_")
+        file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{safe_name}")
+
+        # stream each file
+        size = 0
+        CHUNK_SIZE = 1024 * 1024
+        async with aiofiles.open(file_path, 'wb') as out_f:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                await out_f.write(chunk)
+                size += len(chunk)
+                if size > MAX_UPLOAD_MB * 1024 * 1024:
+                    await out_f.close()
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+                    continue  # skip oversized file
+
         files_db[file_id] = {
             "id": file_id,
             "name": file.filename,
@@ -457,7 +486,7 @@ async def upload_batch(request: Request, background_tasks: BackgroundTasks, file
             "progress": 0,
             "upload_date": datetime.now().isoformat(),
             "expiry_date": (datetime.now() + timedelta(days=2)).isoformat(),
-            "file_size": len(content),
+            "file_size": size,
             "file_path": file_path,
             "word_count": 0,
             "char_count": 0,
@@ -465,14 +494,12 @@ async def upload_batch(request: Request, background_tasks: BackgroundTasks, file
             "extracted_text": "",
             "use_cache": use_cache_bool
         }
-        
         file_ids.append(file_id)
-    
-    # Process all files in batch instead of individually
+
     if file_ids:
         file_paths = [files_db[fid]["file_path"] for fid in file_ids]
         background_tasks.add_task(process_batch_background, file_ids, file_paths)
-    
+
     return {"file_ids": file_ids, "message": f"Uploaded {len(file_ids)} files"}
 
 @app.get("/api/files/{file_id}")
@@ -814,16 +841,6 @@ async def backend_status():
     }
 
 if __name__ == "__main__":
-    print("🚀 Starting PDF to Word API server...")
-    print("📁 Initializing logging system...")
-    logger_system.logger.log("INFO", "PDF to Word API server starting up")
-    print("✅ Server ready on http://0.0.0.0:8000")
-    
-    uvicorn.run(
-        app,  # Pass app directly instead of string
-        host="0.0.0.0", 
-        port=8000, 
-        reload=False,
-        access_log=False,
-        log_level="error"
-    )
+    port = int(os.getenv("PORT", "8000"))
+    print(f"🚀 Starting PDF to Word API server on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False, access_log=False, log_level="info")

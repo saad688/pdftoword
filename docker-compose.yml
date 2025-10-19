@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+    environment:
+      - API_KEY=${API_KEY:-testkey}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-150}
+      - MAX_WORKERS=${MAX_WORKERS:-4}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    restart: unless-stopped

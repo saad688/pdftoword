@@ -10,17 +10,17 @@ const apiClient: AxiosInstance = axios.create({
   timeout: API_TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
+    'x-api-key': 'testkey123', // Add API key for backend authentication
   },
 });
 
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    // Add auth token if needed in the future
-    // const token = localStorage.getItem('auth_token');
-    // if (token) {
-    //   config.headers.Authorization = `Bearer ${token}`;
-    // }
+    // Ensure API key is always present
+    if (!config.headers['x-api-key']) {
+      config.headers['x-api-key'] = 'testkey123';
+    }
     return config;
   },
   (error) => {
