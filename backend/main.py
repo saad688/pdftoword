@@ -28,7 +28,7 @@ from docx.shared import Inches
 
 # Security & runtime config via env
 API_KEY = os.getenv("API_KEY", "")
-ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
+ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "*")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "150"))  # max upload in MB
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
 
