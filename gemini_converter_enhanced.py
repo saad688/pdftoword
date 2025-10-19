@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Callable
 
 # External Libraries
-from google import genai
+import google.generativeai as genai
 from docx import Document
 from dotenv import load_dotenv
 
@@ -60,7 +60,8 @@ class EnhancedGeminiConverter:
             raise ValueError("Gemini API key required.")
         
         self.model_name = model_name
-        self.client = genai.Client(api_key=self.api_key)
+        genai.configure(api_key=self.api_key)
+        self.client = genai
         self.total_tokens_used = 0
         self.total_cost = 0.0
         
@@ -198,14 +199,14 @@ class EnhancedGeminiConverter:
             pdf_file = None
             try:
                 # Upload with progress
-                pdf_file = self.client.files.upload(file=pdf_path)
+                pdf_file = genai.upload_file(pdf_path)
                 update_progress(25, "File uploaded, starting AI processing...")
                 
                 # Process with AI
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=[PROMPT_FULL_DOCUMENT_EXTRACTION, pdf_file],
-                    config=genai.types.GenerateContentConfig(temperature=0.0)
+                model = genai.GenerativeModel(self.model_name)
+                response = model.generate_content(
+                    [PROMPT_FULL_DOCUMENT_EXTRACTION, pdf_file],
+                    generation_config=genai.types.GenerationConfig(temperature=0.0)
                 )
                 
                 update_progress(50, "AI processing complete, parsing results...")
@@ -223,7 +224,7 @@ class EnhancedGeminiConverter:
             finally:
                 if pdf_file:
                     try:
-                        self.client.files.delete(name=pdf_file.name)
+                        genai.delete_file(pdf_file.name)
                     except:
                         pass
 
