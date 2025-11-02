@@ -834,3 +834,47 @@ CORRECTED TEXT:
             "reset_time_minutes": minutes,
             "reset_time_seconds": int(reset_time_remaining)
         }
+    
+    def extract_text_for_preview(self, json_data: Dict[str, Any]) -> str:
+        """Extract plain text from JSON data for preview"""
+        text_parts = []
+        pages = json_data.get("pages", [])
+        
+        for page in pages:
+            page_num = page.get("page_number", 1)
+            text_parts.append(f"=== Page {page_num} ===\n")
+            
+            blocks = page.get("blocks", [])
+            for block in blocks:
+                text = block.get("text", "").strip()
+                if text:
+                    text_parts.append(text + "\n")
+            text_parts.append("\n")
+        
+        return "".join(text_parts)
+    
+    def get_pages_data(self, json_data: Dict[str, Any]) -> List[Dict]:
+        """Extract pages data for frontend"""
+        pages_data = []
+        pages = json_data.get("pages", [])
+        
+        for page in pages:
+            page_num = page.get("page_number", 1)
+            blocks = page.get("blocks", [])
+            
+            content_parts = []
+            for block in blocks:
+                text = block.get("text", "").strip()
+                if text:
+                    block_type = block.get("type", "paragraph")
+                    if block_type == "list_item":
+                        if not text.startswith(('• ', '- ', '* ')) and not re.match(r'^\d+\.', text):
+                            text = f"• {text}"
+                    content_parts.append(text)
+            
+            pages_data.append({
+                "page_number": page_num,
+                "content": "\n\n".join(content_parts) if content_parts else ""
+            })
+        
+        return pages_data

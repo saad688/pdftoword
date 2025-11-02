@@ -25,7 +25,7 @@ export function ProcessingModeSelector({ selectedMode, onModeChange }: Processin
   useEffect(() => {
     const fetchModes = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/processing-modes');
+        const response = await fetch('https://pdftoword-0d2m.onrender.com/api/processing-modes');
         if (response.ok) {
           const data = await response.json();
           setModes(data);
