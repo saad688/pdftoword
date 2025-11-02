@@ -12,6 +12,7 @@ import {
   Package,
   Search,
   Filter,
+  LogOut,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -47,6 +48,7 @@ type BatchProcessingPageProps = {
   onBack: () => void;
   onViewStored: () => void;
   onDownload?: (fileId: string) => void;
+  onLogout?: () => void;
 };
 
 export function BatchProcessingPage({
@@ -55,6 +57,7 @@ export function BatchProcessingPage({
   onDeleteFile,
   onBack,
   onViewStored,
+  onLogout,
 }: BatchProcessingPageProps) {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -221,6 +224,18 @@ export function BatchProcessingPage({
                 <span className="hidden sm:inline">Export ({selectedFiles.size})</span>
                 <span className="sm:hidden">({selectedFiles.size})</span>
               </Button>
+              
+              {onLogout && (
+                <Button
+                  size="sm"
+                  onClick={onLogout}
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                >
+                  <LogOut className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Logout</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>

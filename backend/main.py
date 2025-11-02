@@ -2,8 +2,10 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, F
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import asyncio
+from asyncio import Semaphore
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
@@ -29,13 +31,15 @@ from docx.shared import Inches
 # Security & runtime config via env
 API_KEY = os.getenv("API_KEY", "")
 ALLOWED_ORIGINS_ENV = os.getenv("ALLOWED_ORIGINS", "*")
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "150"))  # max upload in MB
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4"))
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "200"))  # Reduced for stability
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "8"))  # Reduced for memory management
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "50"))  # More conservative
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gemini_converter_enhanced import EnhancedGeminiConverter
+from google import genai
 
 # Ultra-detailed deferred logging system with day/month organization
 log_buffer = deque(maxlen=50000)
@@ -236,18 +240,28 @@ OUTPUT_DIR = "outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Global state
+# Global state with thread-safe access
 files_db: Dict[str, dict] = {}
+files_db_lock = threading.Lock()
 converter = None
-# Thread pool sized via env
-thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+converter_lock = threading.Lock()
+# Thread pool sized via env with better configuration
+thread_pool = ThreadPoolExecutor(
+    max_workers=MAX_WORKERS,
+    thread_name_prefix="pdf_processor"
+)
 file_locks = {}
+# Semaphore for controlling concurrent requests - increased for better frontend handling
+request_semaphore = Semaphore(MAX_CONCURRENT_REQUESTS)
+# Separate semaphore for AI operations to prevent blocking other requests
+ai_semaphore = Semaphore(10)
 
 def get_converter():
     global converter
-    if converter is None:
-        converter = EnhancedGeminiConverter()
-    return converter
+    with converter_lock:
+        if converter is None:
+            converter = EnhancedGeminiConverter()
+        return converter
 
 class FileStatus(BaseModel):
     id: str
@@ -294,42 +308,65 @@ def update_progress(file_id: str, progress: int, message: str = ""):
         
         files_db[file_id]['last_progress'] = progress
 
-def process_file_sync(file_id: str, file_path: str, use_cache: bool = True):
+def process_file_sync(file_id: str, file_path: str, use_cache: bool = True, processing_mode: str = "moderate"):
     try:
         files_db[file_id]["status"] = "processing"
         update_progress(file_id, 5, "Initializing...")
+        
+        # Check file size and adjust processing
+        file_size = os.path.getsize(file_path)
+        if file_size > 100 * 1024 * 1024:  # 100MB+
+            update_progress(file_id, 10, "Large file detected, optimizing...")
         
         output_path = os.path.join(OUTPUT_DIR, f"{file_id}.docx")
         
         def progress_callback(progress: int, message: str):
             update_progress(file_id, progress, message)
-            time.sleep(0.1)
+            time.sleep(0.1)  # Prevent overwhelming updates
         
-        result = get_converter().convert_single(file_path, output_path, progress_callback, use_cache=use_cache)
+        # Process with memory management and error handling
+        try:
+            # Initialize converter with processing mode
+            converter = EnhancedGeminiConverter(processing_mode=processing_mode)
+            result = converter.convert_with_file_id(
+                file_path, 
+                file_id,
+                output_path, 
+                use_cache=use_cache
+            )
+        except Exception as e:
+            # Handle converter errors gracefully
+            files_db[file_id].update({
+                "status": "error",
+                "progress": 0,
+                "error": f"Processing failed: {str(e)[:200]}..."
+            })
+            return None
         
-        file_hash = get_converter().get_file_hash(file_path)
-        cached = get_converter().load_cache(file_hash) if use_cache else None
+        file_hash = converter.get_file_hash(file_path)
+        cached = converter.load_cache(file_hash) if use_cache else None
         
         extracted_text = ""
         pages_data = []
         
         if cached and use_cache:
-            extracted_text = get_converter().extract_text_for_preview(cached)
-            pages_data = get_converter().get_pages_data(cached)
+            extracted_text = converter.extract_text_for_preview(cached)
+            pages_data = converter.get_pages_data(cached)
         
         if not extracted_text:
             extracted_text = "Text extraction completed. Download the Word document to view content."
         
         # Log cost tracking
         try:
-            usage = get_converter().get_usage_stats()
+            usage = converter.get_usage_stats()
             if usage and usage.get('total_tokens', 0) > 0:
                 cost_data = {
                     'file_id': file_id,
                     'operation': 'pdf_conversion',
                     'total_tokens': usage.get('total_tokens', 0),
                     'estimated_cost': usage.get('estimated_cost', 0),
-                    'model': 'gemini-2.5-pro',
+                    'model': usage.get('model_used', processing_mode),
+                    'processing_mode': processing_mode,
                     'processing_time': time.time() - files_db[file_id].get('start_time', time.time())
                 }
                 deferred_logger.log_cost_tracking(cost_data)
@@ -351,47 +388,108 @@ def process_file_sync(file_id: str, file_path: str, use_cache: bool = True):
         return result
         
     except Exception as e:
+        error_msg = str(e)[:200] + "..." if len(str(e)) > 200 else str(e)
         files_db[file_id].update({
             "status": "error",
             "progress": 0,
             "progress_message": "Failed",
-            "error": str(e)
+            "error": error_msg
         })
-        raise e
+        # Don't re-raise to prevent server crash
+        return None
 
-def process_batch_background(file_ids: List[str], file_paths: List[str]):
-    """Process multiple files in batch with optimized threading"""
+def process_batch_background(file_ids: List[str], file_paths: List[str], processing_mode: str = "moderate"):
+    """Process multiple files in batch with global rate limiting"""
     try:
-        for i, (file_id, file_path) in enumerate(zip(file_ids, file_paths)):
+        # Process files one by one to respect global rate limits
+        for file_id, file_path in zip(file_ids, file_paths):
             file_locks[file_id] = threading.Lock()
             files_db[file_id]['start_time'] = time.time()
             
-            # Process each file
-            process_file_sync(file_id, file_path, files_db[file_id].get('use_cache', True))
-            
-            # Clean up lock
-            file_locks.pop(file_id, None)
-            
+            try:
+                process_file_sync(
+                    file_id, 
+                    file_path, 
+                    files_db[file_id].get('use_cache', True),
+                    processing_mode
+                )
+            except Exception as e:
+                deferred_logger.log('ERROR', f'File {file_id} processing failed: {str(e)}')
+            finally:
+                # Clean up lock
+                file_locks.pop(file_id, None)
+        
         deferred_logger.flush_if_idle()
         
     except Exception as e:
         deferred_logger.log('ERROR', f'Batch processing failed: {str(e)}')
 
-async def process_file_background(file_id: str, file_path: str, use_cache: bool = True):
-    file_locks[file_id] = threading.Lock()
-    
-    if file_id in files_db:
-        files_db[file_id]['start_time'] = time.time()
-    
+async def process_file_background(file_id: str, file_path: str, use_cache: bool = True, processing_mode: str = "moderate"):
+    # Use semaphore to control concurrent processing - don't block other operations
+    async with request_semaphore:
+        file_locks[file_id] = threading.Lock()
+        
+        if file_id in files_db:
+            files_db[file_id]['start_time'] = time.time()
+        
+        try:
+            # Add timeout for large files
+            await asyncio.wait_for(
+                run_in_threadpool(process_file_sync, file_id, file_path, use_cache, processing_mode),
+                timeout=1800  # 30 minutes timeout
+            )
+        except asyncio.TimeoutError:
+            files_db[file_id].update({
+                "status": "error",
+                "progress": 0,
+                "error": "Processing timeout - file too large or complex"
+            })
+        except Exception as e:
+            files_db[file_id].update({
+                "status": "error",
+                "progress": 0,
+                "error": str(e)
+            })
+        finally:
+            file_locks.pop(file_id, None)
+            deferred_logger.flush_if_idle()
+            # Force garbage collection for large files
+            import gc
+            gc.collect()
+
+@app.get("/api/processing-modes")
+async def get_processing_modes():
+    """Get available processing modes"""
+    return EnhancedGeminiConverter.get_available_modes()
+
+@app.get("/api/usage-status")
+async def get_usage_status():
+    """Get current usage status with detailed rate limit info"""
     try:
-        await run_in_threadpool(process_file_sync, file_id, file_path, use_cache)
-    finally:
-        file_locks.pop(file_id, None)
-        deferred_logger.flush_if_idle()
+        conv = get_converter()
+        return conv.get_rate_limit_status()
+    except Exception as e:
+        logging.error(f"Usage status error: {e}")
+        return {
+            "model": "unknown",
+            "daily_requests": 0, 
+            "daily_limit": 1000, 
+            "requests_remaining": 1000,
+            "rpm_limit": 15,
+            "reset_time_hours": 0,
+            "reset_time_minutes": 0,
+            "reset_time_seconds": 0
+        }
 
 @app.post("/api/upload", dependencies=[Depends(require_api_key)])
 @app.post("/upload", dependencies=[Depends(require_api_key)])
-async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...), use_cache: str = Form("true")):
+async def upload_file(
+    request: Request, 
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...), 
+    use_cache: str = Form("true"),
+    processing_mode: str = Form("moderate")
+):
     # parse boolean
     use_cache_bool = str(use_cache).lower() == "true"
 
@@ -403,9 +501,9 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
     safe_name = file.filename.replace(" ", "_")
     file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{safe_name}")
 
-    # stream to disk in chunks to avoid high memory use
+    # stream to disk in chunks to avoid high memory use - optimized for large files
     size = 0
-    CHUNK_SIZE = 1024 * 1024  # 1 MB
+    CHUNK_SIZE = 1024 * 1024 * 4  # 4 MB chunks for better performance
     async with aiofiles.open(file_path, 'wb') as out_f:
         while True:
             chunk = await file.read(CHUNK_SIZE)
@@ -422,6 +520,11 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
                     pass
                 raise HTTPException(status_code=413, detail=f"File too large. Max {MAX_UPLOAD_MB} MB allowed.")
 
+    # Validate processing mode
+    available_modes = EnhancedGeminiConverter.get_available_modes()
+    if processing_mode not in available_modes:
+        processing_mode = "moderate"  # fallback to default
+    
     files_db[file_id] = {
         "id": file_id,
         "name": file.filename,
@@ -437,11 +540,12 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
         "extracted_text": "",
         "progress_message": "Uploaded",
         "pages_data": [],
-        "use_cache": use_cache_bool
+        "use_cache": use_cache_bool,
+        "processing_mode": processing_mode
     }
 
     # schedule background processing (non-blocking)
-    background_tasks.add_task(process_file_background, file_id, file_path, use_cache_bool)
+    background_tasks.add_task(process_file_background, file_id, file_path, use_cache_bool, processing_mode)
 
     response_data = files_db[file_id].copy()
     response_data.pop("file_path", None)
@@ -449,8 +553,20 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
 
 @app.post("/api/upload-batch", dependencies=[Depends(require_api_key)])
 @app.post("/upload-batch", dependencies=[Depends(require_api_key)])
-async def upload_batch(request: Request, background_tasks: BackgroundTasks, files: List[UploadFile] = File(...), use_cache: str = Form("true")):
+async def upload_batch(
+    request: Request, 
+    background_tasks: BackgroundTasks, 
+    files: List[UploadFile] = File(...), 
+    use_cache: str = Form("true"),
+    processing_mode: str = Form("moderate")
+):
     use_cache_bool = str(use_cache).lower() == "true"
+    
+    # Validate processing mode
+    available_modes = EnhancedGeminiConverter.get_available_modes()
+    if processing_mode not in available_modes:
+        processing_mode = "moderate"  # fallback to default
+        
     file_ids = []
 
     for file in files:
@@ -461,9 +577,9 @@ async def upload_batch(request: Request, background_tasks: BackgroundTasks, file
         safe_name = file.filename.replace(" ", "_")
         file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{safe_name}")
 
-        # stream each file
+        # stream each file - optimized for batch processing
         size = 0
-        CHUNK_SIZE = 1024 * 1024
+        CHUNK_SIZE = 1024 * 1024 * 4  # 4 MB chunks
         async with aiofiles.open(file_path, 'wb') as out_f:
             while True:
                 chunk = await file.read(CHUNK_SIZE)
@@ -492,13 +608,14 @@ async def upload_batch(request: Request, background_tasks: BackgroundTasks, file
             "char_count": 0,
             "line_count": 0,
             "extracted_text": "",
-            "use_cache": use_cache_bool
+            "use_cache": use_cache_bool,
+            "processing_mode": processing_mode
         }
         file_ids.append(file_id)
 
     if file_ids:
         file_paths = [files_db[fid]["file_path"] for fid in file_ids]
-        background_tasks.add_task(process_batch_background, file_ids, file_paths)
+        background_tasks.add_task(process_batch_background, file_ids, file_paths, processing_mode)
 
     return {"file_ids": file_ids, "message": f"Uploaded {len(file_ids)} files"}
 
@@ -546,56 +663,28 @@ async def ai_correct_text(file_id: str, request: dict):
     if file_id not in files_db:
         raise HTTPException(status_code=404, detail="File not found")
     
-    selected_text = request.get("selected_text", "")
-    user_explanation = request.get("user_explanation", "")
-    
-    # Get page context for the selected text
-    file_data = files_db[file_id]
-    pages_data = file_data.get("pages_data", [])
-    
-    # Find which page contains the selected text
-    page_context = ""
-    for page in pages_data:
-        if selected_text in page.get("content", ""):
-            page_context = page.get("content", "")
-            break
-    
-    # AI correction prompt
-    correction_prompt = f"""
-    You are a text correction expert. Correct the following text based on the user's explanation.
-    
-    SELECTED TEXT TO CORRECT:
-    "{selected_text}"
-    
-    USER'S EXPLANATION OF THE ISSUE:
-    "{user_explanation}"
-    
-    PAGE CONTEXT (for reference):
-    "{page_context[:500]}..."
-    
-    INSTRUCTIONS:
-    1. Only return the corrected version of the selected text
-    2. Maintain the original formatting and structure
-    3. Fix only what the user described as incorrect
-    4. Do not add extra text or explanations
-    5. Preserve any markdown formatting (**bold**, *italic*, etc.)
-    
-    CORRECTED TEXT:
-    """
-    
-    try:
-        # Use Gemini for correction
-        response = get_converter().client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=[correction_prompt]
-        )
+    # Use separate semaphore for AI operations to prevent blocking other requests
+    async with ai_semaphore:
+        selected_text = request.get("selected_text", "")
+        user_explanation = request.get("user_explanation", "")
         
-        corrected_text = response.text.strip()
+        # Get extracted text context
+        file_data = files_db[file_id]
+        extracted_text = file_data.get("extracted_text", "")
         
-        # Log AI correction cost
         try:
-            usage = get_converter().get_usage_stats()
-            if usage and usage.get('total_tokens', 0) > 0:
+            # Use the converter's AI correction method with rate limiting
+            converter = get_converter()
+            corrected_text = await run_in_threadpool(
+                converter.ai_correct_text,
+                selected_text,
+                user_explanation, 
+                extracted_text
+            )
+            
+            # Log AI correction cost
+            try:
+                usage = converter.get_usage_stats()
                 cost_data = {
                     'file_id': file_id,
                     'operation': 'ai_correction',
@@ -606,17 +695,16 @@ async def ai_correct_text(file_id: str, request: dict):
                 }
                 deferred_logger.log_cost_tracking(cost_data)
                 deferred_logger.log('AI_COST', f'AI correction for file {file_id}', details=cost_data)
-        except Exception:
-            pass
-        
-        # Remove any quotes or extra formatting from response
-        if corrected_text.startswith('"') and corrected_text.endswith('"'):
-            corrected_text = corrected_text[1:-1]
-        
-        return {"corrected_text": corrected_text}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI correction failed: {str(e)}")
+            except Exception:
+                pass
+            
+            return {"corrected_text": corrected_text}
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "Daily limit reached" in error_msg:
+                raise HTTPException(status_code=429, detail=error_msg)
+            raise HTTPException(status_code=500, detail=f"AI correction failed: {error_msg}")
 
 @app.post("/api/files/{file_id}/correct")
 async def correct_text(file_id: str, correction: CorrectionRequest):

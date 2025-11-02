@@ -17,21 +17,29 @@ export function PDFViewer({ fileId, fileName }: PDFViewerProps) {
         setLoading(true);
         setError(null);
         
-        // Get PDF from backend
-        const response = await fetch(`https://pdftoword-0d2m.onrender.com/api/files/${fileId}/pdf`, {
+        // Get PDF from backend with better error handling
+        const response = await fetch(`http://127.0.0.1:8000/api/files/${fileId}/pdf`, {
           method: 'GET',
           headers: {
             'Accept': 'application/pdf'
           }
         });
+        
         if (!response.ok) {
-          throw new Error('Failed to load PDF');
+          throw new Error(`Failed to load PDF: ${response.status} ${response.statusText}`);
         }
         
         const blob = await response.blob();
+        
+        // Ensure it's actually a PDF
+        if (blob.type !== 'application/pdf' && !blob.type.includes('pdf')) {
+          throw new Error('Invalid PDF file received');
+        }
+        
         const url = URL.createObjectURL(blob);
         setPdfUrl(url);
       } catch (err) {
+        console.error('PDF loading error:', err);
         setError(err instanceof Error ? err.message : 'Failed to load PDF');
       } finally {
         setLoading(false);
@@ -77,14 +85,32 @@ export function PDFViewer({ fileId, fileName }: PDFViewerProps) {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="h-full p-4">
-        <div className="bg-white rounded-2xl shadow-xl h-full overflow-hidden">
+      <div className="h-full p-2 sm:p-4">
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl h-full overflow-hidden">
           {pdfUrl && (
-            <iframe
-              src={pdfUrl}
-              className="w-full h-full border-0"
-              title={`PDF Preview - ${fileName}`}
-            />
+            <>
+              {/* Mobile-optimized PDF viewer */}
+              <div className="block sm:hidden h-full">
+                <object
+                  data={pdfUrl}
+                  type="application/pdf"
+                  className="w-full h-full"
+                >
+                  <embed
+                    src={pdfUrl}
+                    type="application/pdf"
+                    className="w-full h-full"
+                  />
+                </object>
+              </div>
+              
+              {/* Desktop PDF viewer */}
+              <iframe
+                src={pdfUrl}
+                className="hidden sm:block w-full h-full border-0"
+                title={`PDF Preview - ${fileName}`}
+              />
+            </>
           )}
         </div>
       </div>

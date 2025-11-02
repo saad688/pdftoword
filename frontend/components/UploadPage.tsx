@@ -1,17 +1,21 @@
 import { useState, useRef } from 'react';
-import { Upload, FileText, Clock, Zap, Sparkles, Shield, Layers, HelpCircle, Database } from 'lucide-react';
+import { Upload, FileText, Clock, Zap, Sparkles, Shield, Layers, HelpCircle, Database, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Switch } from './ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { ProcessingModeSelector } from './ProcessingModeSelector';
 
 type UploadPageProps = {
   onFilesUploaded: (files: File[], isBatch: boolean, useCache?: boolean) => void;
   onViewStored: () => void;
   hasStoredFiles: boolean;
+  onLogout?: () => void;
+  processingMode: string;
+  onProcessingModeChange: (mode: string) => void;
 };
 
-export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles }: UploadPageProps) {
+export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles, onLogout, processingMode, onProcessingModeChange }: UploadPageProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [useCache, setUseCache] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -75,17 +79,30 @@ export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles }: Up
                 </p>
               </div>
             </div>
-            {hasStoredFiles && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onViewStored}
-                className="group hover:border-indigo-300 hover:bg-indigo-50/50 transition-all flex-shrink-0"
-              >
-                <Clock className="w-4 h-4 sm:mr-2 group-hover:rotate-12 transition-transform" />
-                <span className="hidden sm:inline">View Stored Files</span>
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {hasStoredFiles && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onViewStored}
+                  className="group hover:border-indigo-300 hover:bg-indigo-50/50 transition-all flex-shrink-0"
+                >
+                  <Clock className="w-4 h-4 sm:mr-2 group-hover:rotate-12 transition-transform" />
+                  <span className="hidden sm:inline">View Stored Files</span>
+                </Button>
+              )}
+              {onLogout && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onLogout}
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 flex-shrink-0"
+                >
+                  <LogOut className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Logout</span>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -133,6 +150,14 @@ export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles }: Up
               <p className="text-slate-600 mb-4 sm:mb-6 text-sm sm:text-base px-4">
                 or click to browse from your computer
               </p>
+              
+              {/* Processing Mode Selector */}
+              <div className="w-full max-w-2xl mb-6">
+                <ProcessingModeSelector 
+                  selectedMode={processingMode}
+                  onModeChange={onProcessingModeChange}
+                />
+              </div>
 
               {/* Cache Option */}
               <TooltipProvider>

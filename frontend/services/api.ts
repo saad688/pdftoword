@@ -104,10 +104,11 @@ export interface ExportResponse {
 // API Methods
 export const api = {
   // Upload single file
-  uploadFile: async (file: File, useCache: boolean = true): Promise<UploadResponse> => {
+  uploadFile: async (file: File, useCache: boolean = true, processingMode: string = 'moderate'): Promise<UploadResponse> => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('use_cache', useCache.toString());
+    formData.append('processing_mode', processingMode);
 
     // Log the actual request being sent
     console.log(`🌐 Making POST request to /api/upload`);
@@ -128,12 +129,13 @@ export const api = {
   },
 
   // Upload multiple files
-  uploadBatch: async (files: File[], useCache: boolean = true): Promise<BatchUploadResponse> => {
+  uploadBatch: async (files: File[], useCache: boolean = true, processingMode: string = 'moderate'): Promise<BatchUploadResponse> => {
     const formData = new FormData();
     files.forEach((file) => {
       formData.append('files', file);
     });
     formData.append('use_cache', useCache.toString());
+    formData.append('processing_mode', processingMode);
 
     const response = await apiClient.post<BatchUploadResponse>('/api/upload-batch', formData, {
       headers: {

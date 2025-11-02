@@ -230,15 +230,32 @@ export function TextEditor({ text, onTextChange, fileId }: TextEditorProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  console.log('Button clicked');
-                  console.log('Current selection state:', currentSelection);
+                  console.log('AI Correction button clicked');
+                  console.log('Current selection state:', JSON.stringify(currentSelection));
                   
-                  if (currentSelection) {
+                  if (currentSelection && currentSelection.trim().length > 0) {
                     setSelectedTextForCorrection(currentSelection);
                     setAiCorrectionOpen(true);
-                    toast.success('Dialog opened with selected text');
+                    toast.success('AI correction dialog opened');
                   } else {
-                    toast.error('Please select text first');
+                    // Try to get current selection from textarea
+                    const textarea = textareaRef.current;
+                    if (textarea) {
+                      const start = textarea.selectionStart;
+                      const end = textarea.selectionEnd;
+                      const selected = textarea.value.substring(start, end);
+                      
+                      if (selected && selected.trim().length > 0) {
+                        setSelectedTextForCorrection(selected);
+                        setCurrentSelection(selected);
+                        setAiCorrectionOpen(true);
+                        toast.success('AI correction dialog opened');
+                      } else {
+                        toast.error('Please select text first');
+                      }
+                    } else {
+                      toast.error('Please select text first');
+                    }
                   }
                 }}
                 className="hover:bg-purple-50 hover:text-purple-700 transition-all group h-7 w-7 sm:h-8 sm:w-8 p-0"
@@ -341,9 +358,17 @@ export function TextEditor({ text, onTextChange, fileId }: TextEditorProps) {
               }}
               onSelect={(e) => {
                 const target = e.target as HTMLTextAreaElement;
-                const selectedText = target.value.substring(target.selectionStart, target.selectionEnd);
-                setCurrentSelection(selectedText);
-                console.log('Text selected:', selectedText);
+                const start = target.selectionStart;
+                const end = target.selectionEnd;
+                const selectedText = target.value.substring(start, end);
+                
+                // Preserve exact formatting including line breaks and spacing
+                if (selectedText && selectedText.trim().length > 0) {
+                  setCurrentSelection(selectedText);
+                  console.log('Text selected (with formatting):', JSON.stringify(selectedText));
+                } else {
+                  setCurrentSelection('');
+                }
               }}
               className="min-h-[400px] sm:min-h-[500px] lg:min-h-[600px] text-slate-900 border-0 focus:border-0 focus:ring-0 resize-none bg-transparent text-sm sm:text-base leading-relaxed"
               placeholder="Extracted text will appear here..."
@@ -376,9 +401,33 @@ export function TextEditor({ text, onTextChange, fileId }: TextEditorProps) {
         fileId={fileId || ''}
         onCorrection={(correctedText) => {
           if (selectedTextForCorrection) {
-            const newText = editableText.replace(selectedTextForCorrection, correctedText);
-            handleTextChange(newText);
-            toast.success('Text corrected by AI');
+            // Use more precise replacement to handle multiple occurrences
+            const textarea = textareaRef.current;
+            if (textarea) {
+              const start = textarea.selectionStart;
+              const end = textarea.selectionEnd;
+              const beforeSelection = editableText.substring(0, start);
+              const afterSelection = editableText.substring(end);
+              const newText = beforeSelection + correctedText + afterSelection;
+              
+              handleTextChange(newText);
+              
+              // Restore cursor position after correction
+              setTimeout(() => {
+                if (textareaRef.current) {
+                  const newPosition = start + correctedText.length;
+                  textareaRef.current.setSelectionRange(newPosition, newPosition);
+                  textareaRef.current.focus();
+                }
+              }, 10);
+              
+              toast.success('Text corrected by AI');
+            } else {
+              // Fallback to simple replacement
+              const newText = editableText.replace(selectedTextForCorrection, correctedText);
+              handleTextChange(newText);
+              toast.success('Text corrected by AI');
+            }
           }
         }}
       />

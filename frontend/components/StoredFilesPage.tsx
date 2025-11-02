@@ -7,6 +7,7 @@ import {
   Eye,
   AlertCircle,
   Download,
+  LogOut,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -31,6 +32,7 @@ type StoredFilesPageProps = {
   onDeleteFile: (fileId: string) => void;
   onBack: () => void;
   onDownload?: (fileId: string) => void;
+  onLogout?: () => void;
 };
 
 export function StoredFilesPage({
@@ -38,6 +40,7 @@ export function StoredFilesPage({
   onSelectFile,
   onDeleteFile,
   onBack,
+  onLogout,
 }: StoredFilesPageProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
@@ -132,6 +135,18 @@ export function StoredFilesPage({
                 </div>
               </div>
             </div>
+            
+            {onLogout && (
+              <Button
+                size="sm"
+                onClick={onLogout}
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 flex-shrink-0"
+              >
+                <LogOut className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            )}
           </div>
         </div>
       </header>

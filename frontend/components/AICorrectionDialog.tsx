@@ -47,7 +47,7 @@ export function AICorrectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-600" />
@@ -61,7 +61,7 @@ export function AICorrectionDialog({
               Selected Text
             </label>
             <div className="p-3 bg-slate-50 rounded-lg border text-sm max-h-32 overflow-y-auto">
-              <span className="text-slate-900">"{selectedText}"</span>
+              <pre className="text-slate-900 whitespace-pre-wrap font-sans text-sm leading-relaxed">"{selectedText}"</pre>
             </div>
           </div>
 

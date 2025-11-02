@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, CheckCircle2, Clock, Eye } from 'lucide-react';
 import { Progress } from './ui/progress';
 import { Button } from './ui/button';
 
@@ -10,6 +10,7 @@ type ProcessingScreenWithMessagesProps = {
   status: 'processing' | 'completed' | 'error';
   error?: string;
   onTimeout: () => void;
+  onViewStored?: () => void;
 };
 
 export function ProcessingScreenWithMessages({ 
@@ -18,7 +19,8 @@ export function ProcessingScreenWithMessages({
   progressMessage,
   status, 
   error, 
-  onTimeout 
+  onTimeout,
+  onViewStored 
 }: ProcessingScreenWithMessagesProps) {
   const [message, setMessage] = useState('Uploading...');
   const [timeElapsed, setTimeElapsed] = useState(0);
@@ -42,27 +44,22 @@ export function ProcessingScreenWithMessages({
       return;
     }
 
-    // Dynamic messages based on progress and time
+    // Dynamic messages based on progress and time - more realistic for page-by-page processing
     if (progress === 0) {
       setMessage('Uploading...');
-    } else if (progress < 20) {
-      setMessage('Processing...');
+    } else if (progress < 15) {
+      setMessage('Splitting PDF into pages...');
+    } else if (progress < 65) {
+      const estimatedPages = Math.ceil((fileName.match(/\d+/g) || [1])[0] || 50); // Rough page estimate
+      const currentPage = Math.floor(((progress - 15) / 50) * estimatedPages) + 1;
+      setMessage(`Processing page ${currentPage}/${estimatedPages}...`);
     } else if (progress < 80) {
-      if (timeElapsed > 30) {
-        setMessage('Still processing... It is taking longer than usual');
-      } else if (timeElapsed > 15) {
-        setMessage('Still processing...');
-      } else {
-        setMessage('Extracting text with AI...');
-      }
+      setMessage('Merging results...');
     } else {
-      setMessage('Almost done...');
+      setMessage('Creating document...');
     }
 
-    // Timeout after 2 minutes
-    if (timeElapsed > 120 && status === 'processing') {
-      onTimeout();
-    }
+    // No automatic timeout - let user decide
   }, [progress, status, timeElapsed, onTimeout]);
 
   if (status === 'error') {
@@ -124,27 +121,52 @@ export function ProcessingScreenWithMessages({
               <span>{Math.floor(timeElapsed / 60)}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
             </div>
 
-            {timeElapsed > 45 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                <p className="text-amber-700 text-sm">
-                  Large files may take longer to process. Please wait...
+            {timeElapsed > 30 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-blue-600" />
+                  <p className="text-blue-700 text-sm font-medium">
+                    Large files are processed page-by-page for better reliability
+                  </p>
+                </div>
+                <p className="text-blue-600 text-xs">
+                  Processing time: ~1 second per page + AI processing time
                 </p>
               </div>
             )}
 
-            {timeElapsed > 90 && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                <p className="text-orange-700 text-sm">
-                  Processing is taking longer than expected. You can wait or try again later.
+            {timeElapsed > 60 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600" />
+                  <p className="text-amber-700 text-sm font-medium">
+                    This is taking longer than usual
+                  </p>
+                </div>
+                <p className="text-amber-600 text-xs mb-3">
+                  Your file is still being processed. You can continue waiting or check progress later.
                 </p>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={onTimeout}
-                  className="mt-2"
-                >
-                  Cancel & Try Again
-                </Button>
+                <div className="flex gap-2">
+                  {onViewStored && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={onViewStored}
+                      className="flex-1"
+                    >
+                      <Eye className="w-4 h-4 mr-2" />
+                      View in Stored Files
+                    </Button>
+                  )}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={onTimeout}
+                    className="flex-1"
+                  >
+                    Cancel Processing
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -154,9 +176,9 @@ export function ProcessingScreenWithMessages({
           <div className="space-y-4">
             <div className="flex items-center justify-center gap-3 text-emerald-600">
               <CheckCircle2 className="w-5 h-5" />
-              <span>Text extraction completed successfully!</span>
+              <span>All pages processed successfully!</span>
             </div>
-            <p className="text-slate-600 text-sm">Redirecting to editor...</p>
+            <p className="text-slate-600 text-sm">Opening editor...</p>
           </div>
         )}
       </div>

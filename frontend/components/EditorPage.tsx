@@ -9,6 +9,7 @@ import {
   Columns2,
   Eye,
   Clock,
+  LogOut,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -16,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner';
 import { TextEditor } from './TextEditor';
 import { PagedPDFViewer } from './PagedPDFViewer';
+import { MobilePDFViewer } from './MobilePDFViewer';
 import { ExportDialog } from './ExportDialog';
 import { CorrectionDialog } from './CorrectionDialog';
 import { Badge } from './ui/badge';
@@ -26,6 +28,7 @@ type EditorPageProps = {
   onUpdateText: (fileId: string, newText: string) => void;
   onBack: () => void;
   onDownload?: (fileId: string) => void;
+  onLogout?: () => void;
 };
 
 export function EditorPage({
@@ -33,6 +36,7 @@ export function EditorPage({
   onUpdateText,
   onBack,
   onDownload,
+  onLogout,
 }: EditorPageProps) {
   const [viewMode, setViewMode] = useState<'editor' | 'sideBySide'>('editor');
   const [copied, setCopied] = useState(false);
@@ -211,6 +215,18 @@ export function EditorPage({
                 <Download className="w-4 h-4 sm:mr-2 group-hover:translate-y-0.5 transition-transform" />
                 <span className="hidden sm:inline">Export</span>
               </Button>
+              
+              {onLogout && (
+                <Button
+                  size="sm"
+                  onClick={onLogout}
+                  variant="outline"
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                >
+                  <LogOut className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Logout</span>
+                </Button>
+              )}
             </div>
           </div>
 
@@ -284,10 +300,20 @@ export function EditorPage({
         {file.status === 'completed' && viewMode === 'sideBySide' && (
           <div className="h-full flex flex-col lg:flex-row animate-slide-up">
             <div className="flex-1 border-b lg:border-b-0 lg:border-r border-slate-200">
-              <PagedPDFViewer 
-                fileId={file.id} 
-                fileName={file.name} 
-              />
+              {/* Mobile-optimized PDF viewer */}
+              <div className="block sm:hidden h-full">
+                <MobilePDFViewer 
+                  fileId={file.id} 
+                  fileName={file.name} 
+                />
+              </div>
+              {/* Desktop PDF viewer */}
+              <div className="hidden sm:block h-full">
+                <PagedPDFViewer 
+                  fileId={file.id} 
+                  fileName={file.name} 
+                />
+              </div>
             </div>
             <div className="flex-1 overflow-auto bg-white">
               <TextEditor text={file.extractedText} onTextChange={handleTextChange} fileId={file.id} />

@@ -5,6 +5,8 @@ import { BatchProcessingPage } from './components/BatchProcessingPage';
 import { StoredFilesPage } from './components/StoredFilesPage';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ProcessingScreenWithMessages } from './components/ProcessingScreenWithMessages';
+import { LoginPage } from './components/LoginPage';
+import { ProcessingModeSelector } from './components/ProcessingModeSelector';
 import OnboardingGuide from './components/OnboardingGuide';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster } from './components/ui/sonner';
@@ -33,6 +35,7 @@ export type ProcessedFile = {
 export type AppView = 'upload' | 'editor' | 'batch' | 'stored' | 'processing';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [currentView, setCurrentView] = useState<AppView>('upload');
   const [previousView, setPreviousView] = useState<AppView>('upload');
   const [files, setFiles] = useState<ProcessedFile[]>([]);
@@ -42,9 +45,21 @@ export default function App() {
   const [isBackendHealthy, setIsBackendHealthy] = useState<boolean>(true);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+  const [processingMode, setProcessingMode] = useState<string>('moderate');
+
+  // Check authentication on app start
+  useEffect(() => {
+    const checkAuth = () => {
+      const token = localStorage.getItem('auth_token');
+      setIsAuthenticated(!!token);
+    };
+    checkAuth();
+  }, []);
 
   // Check backend health and initialize app
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const initializeApp = async () => {
       try {
         // Check backend status first
@@ -84,7 +99,7 @@ export default function App() {
     };
     
     initializeApp();
-  }, []);
+  }, [isAuthenticated]);
 
 
 
@@ -120,11 +135,11 @@ export default function App() {
   };
 
   const handleFilesUploaded = async (newFiles: File[], isBatch: boolean, useCache: boolean = true) => {
-    console.log(`📨 App.tsx handleFilesUploaded: useCache=${useCache}, isBatch=${isBatch}`);
+    console.log(`📨 App.tsx handleFilesUploaded: useCache=${useCache}, isBatch=${isBatch}, processingMode=${processingMode}`);
     try {
       if (isBatch) {
         // Batch upload
-        const response = await api.uploadBatch(newFiles, useCache);
+        const response = await api.uploadBatch(newFiles, useCache, processingMode);
         toast.success(`Uploaded ${response.file_ids.length} files`, {
           description: 'Processing will begin shortly',
         });
@@ -148,8 +163,8 @@ export default function App() {
         navigateTo('batch');
       } else {
         // Single upload
-        console.log(`🚀 App.tsx calling uploadFile with useCache=${useCache}`);
-        const response = await api.uploadFile(newFiles[0], useCache);
+        console.log(`🚀 App.tsx calling uploadFile with useCache=${useCache}, processingMode=${processingMode}`);
+        const response = await api.uploadFile(newFiles[0], useCache, processingMode);
         console.log(`✅ Upload response:`, response);
         toast.success('File uploaded successfully', {
           description: 'Starting text extraction...',
@@ -215,15 +230,27 @@ export default function App() {
             });
             
             if (apiFile.status === 'completed') {
-              // Auto-navigate to editor when processing completes
+              // Auto-navigate to editor when processing completes (only if still on processing screen)
               if (processingFileId === apiFile.id && currentView === 'processing') {
                 setTimeout(() => {
                   setCurrentFileId(apiFile.id);
                   setCurrentView('editor');
-                  toast.success(`Processing complete: ${apiFile.name}`);
-                }, 1500); // Small delay to show completion
-              } else if (currentView !== 'processing') {
-                toast.success(`Processing complete: ${apiFile.name}`);
+                  toast.success(`Processing complete: ${apiFile.name}`, {
+                    description: 'All pages processed successfully!'
+                  });
+                }, 2000); // Longer delay to show completion message
+              } else {
+                // Show notification if user is elsewhere
+                toast.success(`Processing complete: ${apiFile.name}`, {
+                  description: 'File is ready for editing',
+                  action: {
+                    label: 'View',
+                    onClick: () => {
+                      setCurrentFileId(apiFile.id);
+                      setCurrentView('editor');
+                    }
+                  }
+                });
               }
             } else {
               toast.error('Processing failed', {
@@ -247,8 +274,8 @@ export default function App() {
       // Start polling immediately
       pollFile();
       
-      // Set up interval - optimized for real-time updates
-      const interval = setInterval(pollFile, 1000);
+      // Set up interval - adaptive polling based on file status
+      const interval = setInterval(pollFile, 2000); // Slower polling to reduce server load
       pollingIntervals.push(interval);
     });
     
@@ -327,6 +354,22 @@ export default function App() {
 
   const currentFile = files.find((f) => f.id === currentFileId) || null;
 
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    setIsAuthenticated(false);
+    setFiles([]);
+    setCurrentFileId(null);
+    setCurrentView('upload');
+  };
+
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   if (isInitialLoading) {
     return <LoadingScreen />;
   }
@@ -349,6 +392,9 @@ export default function App() {
           onFilesUploaded={handleFilesUploaded}
           onViewStored={() => navigateTo('stored')}
           hasStoredFiles={files.length > 0}
+          onLogout={handleLogout}
+          processingMode={processingMode}
+          onProcessingModeChange={setProcessingMode}
         />
       )}
       {currentView === 'editor' && currentFile && (
@@ -362,6 +408,7 @@ export default function App() {
             goBack();
           }}
           onDownload={downloadFile}
+          onLogout={handleLogout}
         />
       )}
       {currentView === 'batch' && (
@@ -376,6 +423,7 @@ export default function App() {
           onBack={goBack}
           onViewStored={() => navigateTo('stored')}
           onDownload={downloadFile}
+          onLogout={handleLogout}
         />
       )}
       {currentView === 'stored' && (
@@ -388,6 +436,7 @@ export default function App() {
           onDeleteFile={deleteFile}
           onBack={goBack}
           onDownload={downloadFile}
+          onLogout={handleLogout}
         />
       )}
       {currentView === 'processing' && processingFileId && (
@@ -400,6 +449,10 @@ export default function App() {
           onTimeout={() => {
             setProcessingFileId(null);
             navigateTo('upload');
+          }}
+          onViewStored={() => {
+            setProcessingFileId(null);
+            navigateTo('stored');
           }}
         />
       )}
