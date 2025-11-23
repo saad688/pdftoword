@@ -94,10 +94,7 @@ export function ProcessingModeSelector({ selectedMode, onModeChange }: Processin
                     {mode.display_name}
                   </h3>
                   <p className={`text-xs mt-1 ${isSelected ? 'text-indigo-700' : 'text-slate-600'}`}>
-                    {mode.description}
-                  </p>
-                  <p className={`text-xs mt-2 font-mono ${isSelected ? 'text-indigo-800' : 'text-slate-500'}`}>
-                    {mode.estimated_cost_per_page}/page
+                    {mode.description.replace(/\(.*?\)/g, '').trim()}
                   </p>
                 </div>
               </div>

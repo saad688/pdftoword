@@ -48,7 +48,8 @@ CRITICAL RULES:
 1. Preserve ALL original spacing and internal line breaks (\n) within the 'text' field.
 2. For lists, set the "type" to "list_item". Preserve the original bullet, number, or letter (e.g., '1.', 'a.', '- ') in the 'text' field itself.
 3. For tables, set the "type" to "table" and format the 'text' value as markdown pipe format. Example: "| Head 1 | Head 2 |\n|---|---|\n| R1C1 | R1C2 |"
-4. **LATEX NOTATION MANDATORY**: Convert ALL superscripts and subscripts to LaTeX format:
+4. **LATEX NOTATION MANDATORY**: Convert ALL superscripts and subscripts to LaTeX format (^{} and _{}).
+   • This is an INTERMEDIATE step. The system will convert these to Unicode characters later.
    • Superscripts: Use ^{} notation - y4→y^{4}, x2→x^{2}, E=mc2→E=mc^{2}
    • Subscripts: Use _{} notation - H2O→H_{2}O, CO2→CO_{2}, a1→a_{1}
    • Examples: y4→y^{4}, CO2→CO_{2}, H2O→H_{2}O, x^3→x^{3}, a_n→a_{n}
@@ -216,26 +217,42 @@ class EnhancedGeminiConverter:
                 self.total_cost += (input_cost + output_cost)
                 logging.info(f"Usage tracked: {prompt_tokens} input, {candidate_tokens} output. Cost: ${input_cost + output_cost:.6f}")
 
-    def _convert_to_latex(self, text: str) -> str:
-        """Convert superscripts and subscripts to LaTeX notation (Unchanged)"""
-        # ... [LaTeX conversion logic remains here] ...
-        # Convert chemical formulas and subscripts: H2O -> H_{2}O, CO2 -> CO_{2}
-        text = re.sub(r'([A-Za-z])([0-9]+)([A-Za-z])', 
-                     lambda m: f"{m.group(1)}_{{{m.group(2)}}}{m.group(3)}", text)
+    # --- UNICODE MAPPINGS ---
+    SUPERSCRIPT_MAP = {
+        '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+        '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+        'A': 'ᴬ', 'B': 'ᴮ', 'C': 'ᶜ', 'D': 'ᴰ', 'E': 'ᴱ', 'G': 'ᴳ', 'H': 'ᴴ', 'I': 'ᴵ', 'J': 'ᴶ', 'K': 'ᴷ', 'L': 'ᴸ', 'M': 'ᴹ', 'N': 'ᴺ', 'O': 'ᴼ', 'P': 'ᴾ', 'R': 'ᴿ', 'T': 'ᵀ', 'U': 'ᵁ', 'V': 'ⱽ', 'W': 'ᵂ',
+        'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ', 'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ', 'i': 'ⁱ', 'j': 'ʲ', 'k': 'ᵏ', 'l': 'ˡ', 'm': 'ᵐ', 'n': 'ⁿ', 'o': 'ᵒ', 'p': 'ᵖ', 'r': 'ʳ', 's': 'ˢ', 't': 'ᵗ', 'u': 'ᵘ', 'v': 'ᵛ', 'w': 'ʷ', 'x': 'ˣ', 'y': 'ʸ', 'z': 'ᶻ'
+    }
+
+    SUBSCRIPT_MAP = {
+        '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+        '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+        'a': 'ₐ', 'e': 'ₑ', 'h': 'ₕ', 'i': 'ᵢ', 'j': 'ⱼ', 'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'o': 'ₒ', 'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ', 'v': 'ᵥ', 'x': 'ₓ'
+    }
+
+    def _to_superscript(self, char: str) -> str:
+        return self.SUPERSCRIPT_MAP.get(char, f"⁽{char}⁾")
+
+    def _to_subscript(self, char: str) -> str:
+        return self.SUBSCRIPT_MAP.get(char, f"₍{char}₎")
+
+    def _convert_latex_to_unicode(self, text: str) -> str:
+        """Convert LaTeX superscripts and subscripts to Unicode with fallback."""
         
-        # Convert standalone subscripts at word end: H2 -> H_{2}
-        text = re.sub(r'([A-Za-z])([0-9]+)(?=\s|$|[^a-zA-Z0-9])', 
-                     lambda m: f"{m.group(1)}_{{{m.group(2)}}}", text)
+        # Process Superscripts: ^{...}
+        def replace_sup(match):
+            content = match.group(1)
+            return "".join(self._to_superscript(c) for c in content)
         
-        # Convert superscripts: y4 -> y^{4}, x2 -> x^{2} (when at end of variable)
-        text = re.sub(r'([a-zA-Z])([0-9]+)(?=\s|$|[.,;!?)])', 
-                     lambda m: f"{m.group(1)}^{{{m.group(2)}}}", text)
-        
-        # Handle existing caret notation: x^2 -> x^{2}
-        text = re.sub(r'\^([0-9]+)', r'^{\1}', text)
-        
-        # Handle underscore notation: a_n -> a_{n}
-        text = re.sub(r'_([a-zA-Z0-9]+)', r'_{\1}', text)
+        # Process Subscripts: _{...}
+        def replace_sub(match):
+            content = match.group(1)
+            return "".join(self._to_subscript(c) for c in content)
+
+        # Regex for ^{...} and _{...}
+        text = re.sub(r'\^\{([^\}]+)\}', replace_sup, text)
+        text = re.sub(r'_\{([^\}]+)\}', replace_sub, text)
         
         return text
     
@@ -281,8 +298,8 @@ CORRECTED TEXT:
             if corrected_text.startswith('"') and corrected_text.endswith('"'):
                 corrected_text = corrected_text[1:-1]
             
-            # Apply LaTeX conversion
-            corrected_text = self._convert_to_latex(corrected_text)
+            # Apply LaTeX to Unicode conversion
+            corrected_text = self._convert_latex_to_unicode(corrected_text)
             
             return corrected_text
             
@@ -300,24 +317,24 @@ CORRECTED TEXT:
             else:
                 data = json.loads(response_text)
             
-            self._apply_latex_conversion(data)
+            self._apply_unicode_conversion(data)
             return data
             
         except json.JSONDecodeError as e:
             raise ValueError(f"Failed to parse JSON from model response. Error: {e}\nResponse:\n{response_text[:500]}...")
     
-    def _apply_latex_conversion(self, data: Dict[str, Any]):
-        """Recursively apply LaTeX conversion to all text in the JSON data. (Unchanged)"""
+    def _apply_unicode_conversion(self, data: Dict[str, Any]):
+        """Recursively apply Unicode conversion to all text in the JSON data."""
         if isinstance(data, dict):
             for key, value in data.items():
                 if key == 'text' and isinstance(value, str):
-                    data[key] = self._convert_to_latex(value)
+                    data[key] = self._convert_latex_to_unicode(value)
                 elif isinstance(value, (dict, list)):
-                    self._apply_latex_conversion(value)
+                    self._apply_unicode_conversion(value)
         elif isinstance(data, list):
             for item in data:
                 if isinstance(item, (dict, list)):
-                    self._apply_latex_conversion(item)
+                    self._apply_unicode_conversion(item)
 
     def split_pdf_pages(self, pdf_path: str) -> List[str]:
         """Split PDF into individual page files. (Unchanged)"""

@@ -313,7 +313,7 @@ export function StoredFilesPage({
                       size="sm"
                       onClick={() => {
                         if (file.status === 'completed' && expiryStatus !== 'expired') {
-                          window.open(`http://localhost:8000/api/files/${file.id}/download`, '_blank');
+                          window.open(`https://pdftoword-0d2m.onrender.com/api/files/${file.id}/download`, '_blank');
                         }
                       }}
                       disabled={file.status !== 'completed' || expiryStatus === 'expired'}

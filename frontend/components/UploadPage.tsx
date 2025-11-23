@@ -13,9 +13,10 @@ type UploadPageProps = {
   onLogout?: () => void;
   processingMode: string;
   onProcessingModeChange: (mode: string) => void;
+  onViewLogs?: () => void;
 };
 
-export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles, onLogout, processingMode, onProcessingModeChange }: UploadPageProps) {
+export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles, onLogout, processingMode, onProcessingModeChange, onViewLogs }: UploadPageProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [useCache, setUseCache] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +92,17 @@ export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles, onLo
                   <span className="hidden sm:inline">View Stored Files</span>
                 </Button>
               )}
+              {onViewLogs && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onViewLogs}
+                  className="group hover:border-slate-300 hover:bg-slate-50/50 transition-all flex-shrink-0"
+                >
+                  <Database className="w-4 h-4 sm:mr-2" />
+                  <span className="hidden sm:inline">System Logs</span>
+                </Button>
+              )}
               {onLogout && (
                 <Button
                   variant="outline"
@@ -112,10 +124,7 @@ export function UploadPage({ onFilesUploaded, onViewStored, hasStoredFiles, onLo
         <div className="max-w-4xl mx-auto">
           {/* Hero Section */}
           <div className="text-center mb-8 sm:mb-12 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-            <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 mb-4 sm:mb-6">
-              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600" />
-              <span className="text-indigo-700 text-xs sm:text-sm">AI-Powered Text Extraction</span>
-            </div>
+
             <h2 className="text-slate-900 mb-3 sm:mb-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 bg-clip-text px-4">
               Extract Text from PDFs with Precision
             </h2>

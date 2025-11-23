@@ -7,6 +7,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { ProcessingScreenWithMessages } from './components/ProcessingScreenWithMessages';
 import { LoginPage } from './components/LoginPage';
 import { ProcessingModeSelector } from './components/ProcessingModeSelector';
+import { LogsPage } from './components/LogsPage';
 import OnboardingGuide from './components/OnboardingGuide';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster } from './components/ui/sonner';
@@ -32,7 +33,7 @@ export type ProcessedFile = {
   error?: string;
 };
 
-export type AppView = 'upload' | 'editor' | 'batch' | 'stored' | 'processing';
+export type AppView = 'upload' | 'editor' | 'batch' | 'stored' | 'processing' | 'logs';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -395,6 +396,7 @@ export default function App() {
           onLogout={handleLogout}
           processingMode={processingMode}
           onProcessingModeChange={setProcessingMode}
+          onViewLogs={() => navigateTo('logs')}
         />
       )}
       {currentView === 'editor' && currentFile && (
@@ -454,6 +456,12 @@ export default function App() {
             setProcessingFileId(null);
             navigateTo('stored');
           }}
+        />
+      )}
+      {currentView === 'logs' && (
+        <LogsPage
+          onBack={goBack}
+          onLogout={handleLogout}
         />
       )}
       <Toaster position="top-right" richColors />

@@ -353,8 +353,15 @@ def process_file_sync(file_id: str, file_path: str, use_cache: bool = True, proc
             extracted_text = converter.extract_text_for_preview(cached)
             pages_data = converter.get_pages_data(cached)
         
-        if not extracted_text:
-            extracted_text = "Text extraction completed. Download the Word document to view content."
+        if not extracted_text or extracted_text.strip() == "":
+            # Try to get text from file result if available
+            file_result = converter.get_file_result(file_id)
+            if file_result:
+                extracted_text = converter.extract_text_for_preview(file_result)
+            
+            # Only use fallback message if still no text
+            if not extracted_text or extracted_text.strip() == "":
+                extracted_text = "Text extraction completed. Download the Word document to view content."
         
         # Log cost tracking
         try:
@@ -927,6 +934,49 @@ async def backend_status():
         "message": "Backend is running",
         "active_files": len(files_db)
     }
+
+@app.get("/api/logs")
+async def get_logs(limit: int = 100):
+    """Get recent system logs"""
+    try:
+        logs = []
+        with deferred_logger.lock:
+            # Get recent logs from buffer
+            recent_logs = list(deferred_logger.buffer)[-limit:]
+            logs.extend(recent_logs)
+        
+        return {"logs": logs, "total": len(logs)}
+    except Exception as e:
+        return {"logs": [], "total": 0, "error": str(e)}
+
+@app.get("/api/logs/download")
+async def download_logs():
+    """Download logs as JSON file"""
+    try:
+        logs = []
+        with deferred_logger.lock:
+            logs = list(deferred_logger.buffer)
+        
+        # Create temporary file
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump({"logs": logs, "exported_at": datetime.now().isoformat()}, f, indent=2)
+            temp_path = f.name
+        
+        return FileResponse(
+            temp_path,
+            media_type="application/json",
+            filename=f"system_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download logs: {str(e)}")
+        
+# Add some sample logs for testing
+@app.on_event("startup")
+async def startup_event():
+    deferred_logger.log('INFO', 'PDF to Word API server started successfully')
+    deferred_logger.log('INFO', f'Server running with {MAX_WORKERS} workers and {MAX_CONCURRENT_REQUESTS} max concurrent requests')
+    deferred_logger.log('INFO', f'Upload limit set to {MAX_UPLOAD_MB}MB')
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
